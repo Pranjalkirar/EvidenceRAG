@@ -19,13 +19,15 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 
-# Milestone 1 scope: only the foundation needs a runtime dependency.
 # python-dotenv backs the config module's environment-variable path
 # overrides (e.g. pointing EVIDENCERAG_DATA_DIR elsewhere on Kaggle).
-# ML/retrieval dependencies (torch, transformers, faiss, langchain, ...)
-# are intentionally NOT added yet; they land with each component.
+# datasets is the canonical distribution channel for QASPER (Milestone 2
+# ingestion). ML/retrieval dependencies (torch, transformers, faiss,
+# langchain, ...) are intentionally NOT added yet; they land with each
+# component as it is implemented.
 dependencies = [
     "python-dotenv>=1.0,<2.0",
+    "datasets>=2.19,<3.0",
 ]
 
 [project.optional-dependencies]

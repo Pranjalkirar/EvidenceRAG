@@ -95,20 +95,31 @@ Git/GitHub
 
 ## Current Status
 
-This project is at the **foundation stage (Milestone 1)**. Nothing
-retrieval-, model-, or dataset-related is implemented yet.
+This project has completed **Milestone 1 (foundation)** and
+**Milestone 2 (QASPER ingestion + data model)**. Retrieval, reranking,
+and generation are not implemented yet.
 
 **Implemented:**
 - Project skeleton and package layout (`src/evidencerag/`)
-- `pyproject.toml` / `requirements.txt` for the foundation stage
+- `pyproject.toml` / `requirements.txt`
 - Centralized path/settings configuration (`evidencerag.config`)
-- Minimal test suite verifying the package imports correctly
 - Basic (non-GPU) Dockerfile
-- This README
+- **QASPER ingestion** (`evidencerag.ingestion`):
+  - typed internal data model (`Paper` → `Question` → `Answer` → `EvidenceSpan`)
+  - raw dataset acquisition via the Hugging Face `datasets` library (`loader.py`)
+  - structural validation of raw rows (`validate.py`)
+  - normalization into the internal model, including best-effort
+    evidence-to-paragraph/figure provenance resolution (`normalize.py`)
+  - JSON Lines serialization with lossless round-tripping (`serialize.py`)
+  - dataset statistics computed from actual loaded data (`statistics.py`)
+  - CLI: `scripts/ingest_qasper.py`
+- Test suite: package import, config, and full ingestion pipeline
+  (validation, normalization, evidence provenance, serialization,
+  statistics) against a small synthetic fixture — no full-dataset
+  download required to run tests
 
 **Explicitly NOT implemented yet** (all subpackages below are empty
 placeholders with docstrings only):
-- QASPER download/ingestion
 - Chunking
 - BM25 retrieval
 - Dense retrieval / FAISS
@@ -120,6 +131,38 @@ placeholders with docstrings only):
 - FastAPI service
 - Streamlit UI
 - MLflow experiment tracking
+
+### QASPER data model
+
+```
+Paper (id, title, abstract, split, sections, figures_and_tables)
+  └── Question (question_id, question_text, ...)
+        └── Answer (unanswerable / yes_no / free_form_answer / extractive_spans)
+              └── EvidenceSpan (text, resolved, section_index, paragraph_index, ...)
+```
+
+Each `EvidenceSpan` keeps the original evidence text and records
+whether it could be traced back to a specific paragraph or
+figure/table in the paper — the groundwork for a future chunking step
+to derive `question → ground-truth evidence → chunk(s)` mappings.
+Evidence pieces are never concatenated; a question's multiple
+evidence paragraphs, or multiple workers' answers, are all preserved
+individually. See `src/evidencerag/ingestion/schema.py` and
+`normalize.py` for details, including documented ambiguities in the
+raw QASPER schema and how they were resolved.
+
+### Running ingestion
+
+```bash
+python scripts/ingest_qasper.py                       # all splits
+python scripts/ingest_qasper.py --splits train         # one split
+python scripts/ingest_qasper.py --max-papers-per-split 5   # quick smoke test
+```
+
+Downloads/caches the raw dataset under `data/raw/qasper_hf_cache/`
+(never modified afterward) and writes normalized `train.jsonl`,
+`validation.jsonl`, `test.jsonl` under `data/processed/`, then prints
+dataset statistics.
 
 ## Project Layout
 
