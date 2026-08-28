@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Data
+data/raw/
+data/processed/
+
+# Models & generated artifacts
+models/
+artifacts/
+mlruns/
+*.bin
+*.pt
+*.pth
+*.safetensors
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# OS / IDE
+.DS_Store
+.vscode/
