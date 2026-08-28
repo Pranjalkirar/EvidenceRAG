@@ -1,0 +1,9 @@
+# Milestone 1 (project foundation) dependencies only.
+# ML/retrieval libraries (torch, transformers, sentence-transformers,
+# faiss, rank-bm25, langchain, mlflow, fastapi, streamlit, ...) are
+# deliberately excluded here and will be added incrementally as each
+# component is implemented, to keep local dev (8 GB RAM, no local GPU)
+# lightweight.
+
+python-dotenv>=1.0,<2.0   # environment-based path/config overrides
+pytest>=8.0,<9.0          # test runner
