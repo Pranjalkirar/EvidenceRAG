@@ -62,6 +62,12 @@ class ProjectPaths:
     experiments_dir: Path = field(default_factory=lambda: PROJECT_ROOT / "experiments")
     notebooks_dir: Path = field(default_factory=lambda: PROJECT_ROOT / "notebooks")
     scripts_dir: Path = field(default_factory=lambda: PROJECT_ROOT / "scripts")
+    # Milestone 4: persisted retrieval indexes (BM25 pickle, FAISS index
+    # + metadata) live here, separate from data/processed so retrieval
+    # artifacts can be wiped/rebuilt without touching M2/M3 output.
+    artifacts_dir: Path = field(
+        default_factory=lambda: _env_path("EVIDENCERAG_ARTIFACTS_DIR", PROJECT_ROOT / "artifacts")
+    )
 
     def ensure_data_dirs(self) -> None:
         """Create data directories if missing. Does not touch source dirs.
@@ -77,13 +83,21 @@ class ProjectPaths:
 class Settings:
     """Project-wide, non-secret settings.
 
-    Deliberately minimal for Milestone 1. Retrieval/model/eval settings
-    will be added here (or in configs/*.yaml, loaded by this module)
-    once those components are implemented — not before.
+    Grows incrementally as each milestone needs new settings (or
+    configs/*.yaml, loaded by this module) -- not before.
     """
 
     project_name: str = "EvidenceRAG"
     random_seed: int = 42
+
+    # Milestone 4: retrieval baseline settings — sensible defaults, not
+    # tuned hyperparameters (M4 establishes the baseline).
+    embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
+    retrieval_top_k: int = 5
+    retrieval_candidate_depth: int = 20  # per-retriever candidates fed into RRF
+    rrf_k: int = 60
+    bm25_k1: float = 1.5
+    bm25_b: float = 0.75
 
 
 PATHS = ProjectPaths()

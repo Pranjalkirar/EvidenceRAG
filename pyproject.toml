@@ -22,12 +22,17 @@ classifiers = [
 # python-dotenv backs the config module's environment-variable path
 # overrides (e.g. pointing EVIDENCERAG_DATA_DIR elsewhere on Kaggle).
 # datasets is the canonical distribution channel for QASPER (Milestone 2
-# ingestion). ML/retrieval dependencies (torch, transformers, faiss,
-# langchain, ...) are intentionally NOT added yet; they land with each
-# component as it is implemented.
+# ingestion). Milestone 4 adds the retrieval baseline: rank-bm25 (sparse),
+# faiss-cpu + sentence-transformers (dense, Qwen3-Embedding-0.6B). LangChain
+# and generation/eval dependencies are intentionally NOT added yet; they
+# land with each component as it is implemented.
 dependencies = [
     "python-dotenv>=1.0,<2.0",
     "datasets>=2.19,<3.0",
+    "numpy>=1.26,<3.0",
+    "rank-bm25>=0.2,<0.3",
+    "faiss-cpu>=1.8,<2.0",
+    "sentence-transformers>=3.0,<4.0",
 ]
 
 [project.optional-dependencies]
