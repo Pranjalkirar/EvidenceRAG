@@ -23,9 +23,13 @@ classifiers = [
 # overrides (e.g. pointing EVIDENCERAG_DATA_DIR elsewhere on Kaggle).
 # datasets is the canonical distribution channel for QASPER (Milestone 2
 # ingestion). Milestone 4 adds the retrieval baseline: rank-bm25 (sparse),
-# faiss-cpu + sentence-transformers (dense, Qwen3-Embedding-0.6B). LangChain
-# and generation/eval dependencies are intentionally NOT added yet; they
-# land with each component as it is implemented.
+# faiss-cpu + sentence-transformers (dense, Qwen3-Embedding-0.6B).
+# Milestone 6 adds the generation stage: transformers (Qwen3-4B-Instruct-2507,
+# loaded via AutoModelForCausalLM/AutoTokenizer directly, not through
+# sentence-transformers) -- torch itself is already pulled in transitively by
+# sentence-transformers, so it is not listed again here. LangChain and
+# evaluation dependencies are intentionally NOT added yet; they land with
+# each component as it is implemented.
 dependencies = [
     "python-dotenv>=1.0,<2.0",
     "datasets>=2.19,<3.0",
@@ -33,6 +37,7 @@ dependencies = [
     "rank-bm25>=0.2,<0.3",
     "faiss-cpu>=1.8,<2.0",
     "sentence-transformers>=3.0,<4.0",
+    "transformers>=4.40,<5.0",
 ]
 
 [project.optional-dependencies]

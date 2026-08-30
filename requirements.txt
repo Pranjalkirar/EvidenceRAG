@@ -1,8 +1,12 @@
 # Milestone 1 (project foundation) + Milestone 2 (QASPER ingestion) +
-# Milestone 4 (retrieval baseline) dependencies. LangChain, generation,
-# and evaluation libraries are deliberately excluded here and will be
-# added incrementally as each component is implemented, to keep local
-# dev (8 GB RAM, no local GPU) lightweight.
+# Milestone 4 (retrieval baseline) + Milestone 6 (generation) dependencies.
+# LangChain and evaluation libraries are deliberately excluded here and will
+# be added incrementally as each component is implemented. Milestone 6's
+# `transformers` dependency (and the GPU-bound Qwen3-4B-Instruct-2507 model
+# it loads) is only exercised by evidencerag.generation.generator.HFGenerator
+# and its real-model integration test -- it is not required to run the
+# normal (fake-model) test suite, keeping local dev (8 GB RAM, no local GPU)
+# lightweight.
 
 python-dotenv>=1.0,<2.0   # environment-based path/config overrides
 pytest>=8.0,<9.0          # test runner
@@ -18,3 +22,9 @@ numpy>=1.26,<3.0
 rank-bm25>=0.2,<0.3               # BM25Okapi
 faiss-cpu>=1.8,<2.0                # IndexFlatIP, brute-force exact search
 sentence-transformers>=3.0,<4.0    # Qwen/Qwen3-Embedding-0.6B loading
+
+# Milestone 6: answer generation. `transformers` loads Qwen3-4B-Instruct-2507
+# directly via AutoModelForCausalLM/AutoTokenizer; torch itself is already
+# pulled in transitively by sentence-transformers above, so it is not
+# listed again here.
+transformers>=4.40,<5.0            # Qwen/Qwen3-4B-Instruct-2507 loading
