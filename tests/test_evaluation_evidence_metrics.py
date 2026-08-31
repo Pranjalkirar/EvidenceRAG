@@ -87,9 +87,33 @@ def test_retrieved_paragraph_texts_abstract_chunk_contributes_nothing():
     assert result == frozenset()
 
 
-def test_retrieved_paragraph_texts_raises_on_paper_mismatch():
-    paper = make_paper(paper_id="paper-A", sections=(Section(section_index=0, title="S", paragraphs=("text",)),))
-    chunks = [make_chunk(chunk_id="c1", text="x", paper_id="paper-B", section_index=0, paragraph_indices=(0,))]
+def test_retrieved_paragraph_texts_ignores_cross_paper_chunks():
+    paper = make_paper(
+        paper_id="paper-A",
+        sections=(Section(section_index=0, title="S", paragraphs=("text",)),),
+    )
+    chunks = [
+        make_chunk(
+            chunk_id="same-paper",
+            text="x",
+            paper_id="paper-A",
+            section_index=0,
+            paragraph_indices=(0,),
+        ),
+        make_chunk(
+            chunk_id="other-paper",
+            text="y",
+            paper_id="paper-B",
+            section_index=0,
+            paragraph_indices=(0,),
+        ),
+    ]
     chunk_by_id = {c.chunk_id: c for c in chunks}
-    with pytest.raises(ValueError):
-        evidence_metrics.retrieved_paragraph_texts(["c1"], chunk_by_id, paper)
+
+    result = evidence_metrics.retrieved_paragraph_texts(
+        ["other-paper", "same-paper"],
+        chunk_by_id,
+        paper,
+    )
+
+    assert result == frozenset({"text"})

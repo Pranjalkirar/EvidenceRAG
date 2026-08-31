@@ -47,10 +47,7 @@ def retrieved_paragraph_texts(
     for chunk_id in chunk_ids:
         chunk = chunk_by_id[chunk_id]
         if chunk.paper_id != paper.paper_id or chunk.split != paper.split:
-            raise ValueError(
-                f"chunk {chunk_id!r} belongs to paper={chunk.paper_id!r}/split={chunk.split!r}, "
-                f"not paper={paper.paper_id!r}/split={paper.split!r}"
-            )
+            continue
         if chunk.section_index is None:
             continue
         for paragraph_index in chunk.paragraph_indices:
