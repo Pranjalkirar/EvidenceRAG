@@ -17,6 +17,9 @@ data/processed/
 models/
 artifacts/
 mlruns/
+
+# M7 evaluation run outputs (keep experiments/ via .gitkeep, not individual runs)
+experiments/m7/
 *.bin
 *.pt
 *.pth
