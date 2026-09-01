@@ -36,3 +36,6 @@ experiments/m7/
 # OS / IDE
 .DS_Store
 .vscode/
+src/evidencerag.egg-info/
+
+src/evidencerag.egg-info/
