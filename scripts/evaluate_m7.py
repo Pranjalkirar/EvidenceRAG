@@ -127,9 +127,21 @@ def main() -> int:
 
     embedder = QwenEmbedder(model_name=SETTINGS.embedding_model)
     reranker = CrossEncoderReranker()
-    generator = HFGenerator() if mode == "end_to_end" else None
 
+    # Build the four retrieval systems -- including the one-time bulk
+    # dense-embedding pass over the whole corpus in build_systems() --
+    # BEFORE loading the generator. That embedding pass is the single
+    # biggest transient GPU consumer in retrieval setup; running it
+    # first means it doesn't have to share the GPU with an idle
+    # multi-GB generator on top of it.
     systems = build_systems(chunks, embedder=embedder, reranker=reranker)
+
+    # bfloat16 is requested explicitly rather than relying on
+    # torch_dtype="auto": some transformers versions resolve "auto"
+    # through the now-deprecated torch_dtype path and silently fall
+    # back to float32, roughly doubling generator memory on a GPU that
+    # may already be close to full after the steps above.
+    generator = HFGenerator(torch_dtype="bfloat16") if mode == "end_to_end" else None
 
     config = EvaluationConfig(
         mode=mode,
