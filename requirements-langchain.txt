@@ -1,0 +1,16 @@
+# Milestone 8 (Custom vs LangChain comparison) ONLY -- optional.
+#
+# Install alongside requirements.txt to run scripts/evaluate_m8.py with
+# --implementations langchain (the default tries both, and falls back to
+# custom-only automatically if these aren't installed):
+#
+#     pip install -r requirements.txt -r requirements-langchain.txt
+#
+# Equivalently: pip install -e .[langchain]
+#
+# M1-M7 (and M8's custom-only path) never import anything from these
+# packages -- see evidencerag.langchain_impl.require_langchain().
+
+langchain-core>=0.2,<0.4
+langchain>=0.2,<0.4          # EnsembleRetriever (Reciprocal Rank Fusion)
+langchain-community>=0.2,<0.4  # BM25Retriever, FAISS vector store
