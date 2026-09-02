@@ -39,6 +39,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from evidencerag.generation.generator import HFGenerator, GENERATION_MODEL
 from evidencerag.chunking.evidence_map import EvidenceChunkMapping
 from evidencerag.chunking.serialize import load_chunks, load_evidence_mappings
 from evidencerag.config import PATHS, SETTINGS
@@ -62,6 +63,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Pilot/smoke runs only -- do not use for a reported benchmark.",
+    )
+    parser.add_argument(
+        "--generator-model",
+        default=None,
+        help="Optional generator model override for M7 experiments.",
     )
     parser.add_argument(
         "--output-dir",
@@ -141,7 +147,15 @@ def main() -> int:
     # through the now-deprecated torch_dtype path and silently fall
     # back to float32, roughly doubling generator memory on a GPU that
     # may already be close to full after the steps above.
-    generator = HFGenerator(torch_dtype="bfloat16") if mode == "end_to_end" else None
+
+    generator = (
+        HFGenerator(
+            model_name=args.generator_model or GENERATION_MODEL,
+            torch_dtype="bfloat16",
+        )
+        if mode == "end_to_end"
+        else None
+    )
 
     config = EvaluationConfig(
         mode=mode,
