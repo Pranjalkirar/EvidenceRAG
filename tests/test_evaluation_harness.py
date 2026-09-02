@@ -175,3 +175,89 @@ def test_recall_at_20_identical_for_hybrid_and_hybrid_rerank_by_construction():
 
     recall_20_by_system = {record.system: record.recall_at_20 for record in records}
     assert recall_20_by_system["hybrid"] == recall_20_by_system["hybrid_rerank"] == 1.0
+
+
+# ---- on_record / skip_keys (resumability) ----
+
+
+def test_on_record_called_once_per_computed_record():
+    paper, mappings_by_paper = _single_question_paper()
+    chunks = [make_chunk(chunk_id="c1", text="chunk text", section_index=0, paragraph_indices=(0,))]
+    systems = _fake_systems_all_returning("c1", "What is the method?")
+
+    seen = []
+    config = EvaluationConfig(mode="retrieval", split="train", top_k=5, candidate_depth=20)
+    records, _ = run_evaluation(
+        papers=[paper], chunks=chunks, evidence_mappings_by_paper=mappings_by_paper,
+        systems=systems, config=config, on_record=seen.append,
+    )
+
+    assert seen == records
+    assert len(seen) == 4  # one per system
+
+
+def test_skip_keys_skips_retrieval_entirely_for_matching_keys():
+    paper, mappings_by_paper = _single_question_paper()
+    chunks = [make_chunk(chunk_id="c1", text="chunk text", section_index=0, paragraph_indices=(0,))]
+    query = "What is the method?"
+    bm25_retriever = QueryKeyedFakeRetriever({query: [make_result("c1", 1)]})
+    systems = EvaluationSystems(
+        retrievers={
+            "bm25": bm25_retriever,
+            "dense": QueryKeyedFakeRetriever({query: [make_result("c1", 1)]}),
+            "hybrid": QueryKeyedFakeRetriever({query: [make_result("c1", 1)]}),
+            "hybrid_rerank": QueryKeyedFakeRetriever({query: [make_result("c1", 1)]}),
+        },
+        candidate_sources={},
+    )
+    systems.candidate_sources.update(systems.retrievers)
+
+    config = EvaluationConfig(mode="retrieval", split="train", top_k=5, candidate_depth=20)
+    records, _ = run_evaluation(
+        papers=[paper], chunks=chunks, evidence_mappings_by_paper=mappings_by_paper,
+        systems=systems, config=config,
+        skip_keys={("9999.00001", 0, "bm25")},
+    )
+
+    assert bm25_retriever.calls == []  # never called -- skipped entirely
+    assert {record.system for record in records} == {"dense", "hybrid", "hybrid_rerank"}
+    assert len(records) == 3
+
+
+def test_skip_keys_summary_only_covers_records_computed_this_call():
+    # run_evaluation's own returned summary is scoped to what it
+    # computed in this call -- summarize_records is what a caller uses
+    # to get a summary over the full resumed-plus-new set (see
+    # evaluate_m7.py), which this test doesn't need to exercise.
+    paper, mappings_by_paper = _single_question_paper()
+    chunks = [make_chunk(chunk_id="c1", text="chunk text", section_index=0, paragraph_indices=(0,))]
+    systems = _fake_systems_all_returning("c1", "What is the method?")
+
+    config = EvaluationConfig(mode="retrieval", split="train", top_k=5, candidate_depth=20)
+    records, summary = run_evaluation(
+        papers=[paper], chunks=chunks, evidence_mappings_by_paper=mappings_by_paper,
+        systems=systems, config=config,
+        skip_keys={("9999.00001", 0, "bm25"), ("9999.00001", 0, "dense")},
+    )
+
+    assert len(records) == 2
+    assert summary.systems[0].n_questions + summary.systems[1].n_questions == 2
+
+
+# ---- max_new_tokens threading ----
+
+
+def test_max_new_tokens_forwarded_to_generate_answer():
+    paper, mappings_by_paper = _single_question_paper()
+    chunks = [make_chunk(chunk_id="c1", text="chunk text", section_index=0, paragraph_indices=(0,))]
+    systems = _fake_systems_all_returning("c1", "What is the method?")
+    generator = FakeGenerator(canned_answer="An answer.")
+
+    config = EvaluationConfig(mode="end_to_end", split="train", top_k=5, candidate_depth=20, max_new_tokens=64)
+    run_evaluation(
+        papers=[paper], chunks=chunks, evidence_mappings_by_paper=mappings_by_paper,
+        systems=systems, config=config, generator=generator,
+    )
+
+    assert generator.calls
+    assert all(max_new_tokens == 64 for _, max_new_tokens in generator.calls)

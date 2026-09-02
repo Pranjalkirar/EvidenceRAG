@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from evidencerag.evaluation.io import load_results, save_run
+from evidencerag.evaluation.io import append_record, load_completed_keys, load_results, save_metadata, save_run, save_summary
 from evidencerag.evaluation.schema import EvalRecord, RunMetadata, RunSummary, SystemSummary
 
 
@@ -95,3 +95,55 @@ def test_load_results_round_trips_records(tmp_path):
     assert isinstance(loaded[0].retrieved_chunk_ids, tuple)
     assert isinstance(loaded[0].gold_chunk_references, tuple)
     assert isinstance(loaded[0].gold_chunk_references[0], tuple)
+
+
+# ---- incremental writing (append_record / save_metadata / save_summary) ----
+
+
+def test_append_record_creates_file_and_appends_incrementally(tmp_path):
+    output_dir = tmp_path / "run1"
+    append_record(output_dir, _sample_record("bm25"))
+    append_record(output_dir, _sample_record("hybrid_rerank"))
+
+    loaded = list(load_results(output_dir / "results.jsonl"))
+    assert [record.system for record in loaded] == ["bm25", "hybrid_rerank"]
+
+
+def test_append_record_is_visible_immediately_without_save_run(tmp_path):
+    # Simulates a run being interrupted after only one record: the
+    # file must already reflect that record on disk, not require a
+    # final save_run() call to appear.
+    output_dir = tmp_path / "run1"
+    append_record(output_dir, _sample_record("bm25"))
+    assert (output_dir / "results.jsonl").exists()
+    assert len(list(load_results(output_dir / "results.jsonl"))) == 1
+
+
+def test_save_metadata_and_save_summary_are_independent_of_append_record(tmp_path):
+    output_dir = tmp_path / "run1"
+    save_metadata(output_dir, _sample_metadata())
+    append_record(output_dir, _sample_record("bm25"))
+    save_summary(output_dir, _sample_summary())
+
+    assert (output_dir / "metadata.json").exists()
+    assert (output_dir / "summary.json").exists()
+    assert len(list(load_results(output_dir / "results.jsonl"))) == 1
+
+
+# ---- resuming (load_completed_keys) ----
+
+
+def test_load_completed_keys_empty_when_file_does_not_exist(tmp_path):
+    assert load_completed_keys(tmp_path / "does-not-exist" / "results.jsonl") == set()
+
+
+def test_load_completed_keys_reflects_appended_records(tmp_path):
+    output_dir = tmp_path / "run1"
+    append_record(output_dir, _sample_record("bm25"))
+    append_record(output_dir, _sample_record("dense"))
+
+    keys = load_completed_keys(output_dir / "results.jsonl")
+    assert keys == {
+        ("9999.00001", 0, "bm25"),
+        ("9999.00001", 0, "dense"),
+    }

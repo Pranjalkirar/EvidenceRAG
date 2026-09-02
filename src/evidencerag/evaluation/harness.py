@@ -21,13 +21,32 @@ Corpus identity is verified once up front via M4's own
 checked against `config.split`, so a caller mistake (mismatched
 chunks/systems, or a split mix-up) fails immediately and loudly, never
 as a silent scoring anomaly -- per M7's correctness requirement.
+
+`run_evaluation` supports two features needed for a real, multi-hour
+end-to-end run rather than a fast fake-based test:
+
+  - `on_record`, called immediately after each `EvalRecord` is
+    computed -- so a caller (see `scripts/evaluate_m7.py`) can persist
+    it to disk right away via `io.append_record`, instead of losing
+    every record from a run that gets interrupted before it returns.
+  - `skip_keys`, a set of `(paper_id, question_index, system)` triples
+    to skip entirely -- so a rerun with the same `--run-id` can resume
+    from an interrupted run's `results.jsonl` (via
+    `io.load_completed_keys`) without recomputing retrieval and, more
+    importantly, without re-paying for already-done generation calls.
+
+`summarize_records` is a standalone function (not folded into
+`run_evaluation`) specifically so a resumed run's summary can be
+computed over the FULL on-disk `results.jsonl` (previous invocation's
+records plus this one's), not just the subset `run_evaluation`
+happened to compute in this particular process.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from statistics import mean
-from typing import Literal, Mapping, Optional, Sequence
+from typing import AbstractSet, Callable, Literal, Mapping, Optional, Sequence
 
 from evidencerag.chunking.evidence_map import EvidenceChunkMapping
 from evidencerag.chunking.schema import Chunk
@@ -36,7 +55,7 @@ from evidencerag.evaluation.gold import QuestionGold, build_gold
 from evidencerag.evaluation.schema import EvalRecord, RunSummary, SystemSummary
 from evidencerag.evaluation.systems import EvaluationSystems
 from evidencerag.generation.generate import generate_answer
-from evidencerag.generation.generator import Generator
+from evidencerag.generation.generator import DEFAULT_MAX_NEW_TOKENS, Generator
 from evidencerag.ingestion.schema import Paper
 
 Mode = Literal["retrieval", "end_to_end"]
@@ -53,12 +72,20 @@ class EvaluationConfig:
     `max_questions` truncates the run across the whole split (not per
     paper) -- intended for pilot/smoke runs only, never for a reported
     benchmark number.
+
+    `max_new_tokens` is forwarded to `generate_answer()` unchanged --
+    M6's own `generate_answer`/`Generator.generate` already accept it
+    as a parameter, so capping it here (e.g. for QASPER's typically
+    short reference answers) is a pure M7 configuration choice and
+    touches no M6 source. Defaults to M6's own `DEFAULT_MAX_NEW_TOKENS`
+    so omitting it changes nothing.
     """
 
     mode: Mode
     split: str
     top_k: int
     candidate_depth: int
+    max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS
     max_questions: Optional[int] = None
 
 
@@ -69,11 +96,13 @@ def run_evaluation(
     systems: EvaluationSystems,
     config: EvaluationConfig,
     generator: Optional[Generator] = None,
+    on_record: Optional[Callable[[EvalRecord], None]] = None,
+    skip_keys: Optional[AbstractSet[tuple[str, int, str]]] = None,
 ) -> tuple[list[EvalRecord], RunSummary]:
     """Run all four systems over every question in `papers` (or the
     first `config.max_questions`, split-order preserved), returning
-    one `EvalRecord` per question x system plus an aggregated
-    `RunSummary`.
+    the `EvalRecord`s computed in *this call* plus a `RunSummary` over
+    just those records.
 
     `evidence_mappings_by_paper` must map each `paper.paper_id` in
     `papers` to exactly the `EvidenceChunkMapping`s
@@ -81,6 +110,21 @@ def run_evaluation(
     a paper with no entry is treated as "zero mappable evidence for
     every question in it", not an error, since a paper can legitimately
     have no chunk-resolvable evidence.
+
+    `on_record`, if given, is called with each `EvalRecord` immediately
+    after it's computed -- before this function returns -- so a caller
+    can persist it right away (see `io.append_record`) rather than
+    losing everything if the process is interrupted before this
+    function returns.
+
+    `skip_keys`, if given, is a set of `(paper_id, question_index,
+    system)` triples that are skipped entirely -- no retrieval call,
+    no generation call, no `EvalRecord` produced or passed to
+    `on_record` -- so a resumed run doesn't redo (or re-pay for) work
+    a previous invocation already finished. The returned `records`
+    and `RunSummary` therefore only cover what *this* call computed;
+    see `summarize_records` for computing a summary over the full,
+    resumed-plus-new set of records.
 
     Raises `ValueError` if `config.mode == "end_to_end"` and no
     `generator` is given, if any `paper.split != config.split`, if
@@ -111,6 +155,7 @@ def run_evaluation(
         if verify_corpus is not None:
             verify_corpus(chunks)
 
+    skip_keys = skip_keys or frozenset()
     chunk_by_id = {chunk.chunk_id: chunk for chunk in chunks}
     chunk_text_by_id = {chunk.chunk_id: chunk.text for chunk in chunks}
 
@@ -131,25 +176,29 @@ def run_evaluation(
             gold = gold_by_question[q_idx]
 
             for system_name, retriever in systems.retrievers.items():
+                if (paper.paper_id, q_idx, system_name) in skip_keys:
+                    continue
+
                 top_k_results = retriever.retrieve(question.question_text, top_k=config.top_k)
                 candidate_results = systems.candidate_sources[system_name].retrieve(
                     question.question_text, top_k=config.candidate_depth
                 )
-                records.append(
-                    _score_one(
-                        system_name=system_name,
-                        paper=paper,
-                        gold=gold,
-                        top_k_results=top_k_results,
-                        candidate_results=candidate_results,
-                        config=config,
-                        chunk_by_id=chunk_by_id,
-                        chunk_text_by_id=chunk_text_by_id,
-                        generator=generator,
-                    )
+                record = _score_one(
+                    system_name=system_name,
+                    paper=paper,
+                    gold=gold,
+                    top_k_results=top_k_results,
+                    candidate_results=candidate_results,
+                    config=config,
+                    chunk_by_id=chunk_by_id,
+                    chunk_text_by_id=chunk_text_by_id,
+                    generator=generator,
                 )
+                records.append(record)
+                if on_record is not None:
+                    on_record(record)
 
-    return records, _summarize(records, config.mode)
+    return records, summarize_records(records, config.mode)
 
 
 def _score_one(
@@ -182,7 +231,13 @@ def _score_one(
     answer = answer_f1 = answer_type = generator_model = None
     if config.mode == "end_to_end":
         assert generator is not None  # enforced in run_evaluation
-        result = generate_answer(gold.question_text, list(top_k_results), chunk_text_by_id, generator)
+        result = generate_answer(
+            gold.question_text,
+            list(top_k_results),
+            chunk_text_by_id,
+            generator,
+            max_new_tokens=config.max_new_tokens,
+        )
         answer = result.answer
         answer_f1, answer_type = answer_metrics.answer_f1_and_type(answer, gold.answer_references)
         generator_model = result.model_name
@@ -207,7 +262,15 @@ def _score_one(
     )
 
 
-def _summarize(records: Sequence[EvalRecord], mode: Mode) -> RunSummary:
+def summarize_records(records: Sequence[EvalRecord], mode: Mode) -> RunSummary:
+    """Aggregate `EvalRecord`s into a `RunSummary`, grouped by system.
+
+    Public and standalone (not folded into `run_evaluation`) so a
+    resumed run can call it over the FULL on-disk `results.jsonl`
+    (previous invocation's records plus this one's, e.g. via
+    `io.load_results`), rather than only the subset `run_evaluation`
+    happened to compute in one particular process.
+    """
     records_by_system: dict[str, list[EvalRecord]] = {}
     for record in records:
         records_by_system.setdefault(record.system, []).append(record)

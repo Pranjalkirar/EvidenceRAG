@@ -24,10 +24,36 @@ reranker.
 never use it for a reported benchmark number. The final validation and
 test evaluations must run over the complete split.
 
+RESUMING AN INTERRUPTED RUN: every question x system result is written
+to `results.jsonl` immediately, as it's computed -- not only once the
+whole run finishes. If a run is interrupted (a Kaggle session limit, an
+OOM, a manual stop) and rerun with the SAME `--run-id`, it picks up
+where it left off instead of redoing (and re-paying the generation
+cost of) work that already finished. Use a fresh `--run-id` to force a
+run from scratch instead of resuming.
+
+`--max-new-tokens` caps how many tokens the generator produces per
+answer in end-to-end mode (M6's own default is used if omitted).
+QASPER's reference answers are typically short, so a much smaller
+budget than the default meaningfully cuts end-to-end wall-clock time
+without materially changing Answer F1 -- this is an M7 evaluation
+choice threaded through `generate_answer()`'s existing parameter, not
+a change to M6 itself.
+
+`--generator-model` swaps the end-to-end generator for a different
+Hugging Face causal LM (e.g. a smaller/faster one), for comparing
+generation quality/speed/memory trade-offs. M6's own default
+(Qwen/Qwen3-4B-Instruct-2507) is used when this is omitted, so the
+standard benchmark is unaffected.
+
 Usage:
     python scripts/evaluate_m7.py --split validation --mode retrieval
     python scripts/evaluate_m7.py --split validation --mode retrieval --max-questions 20
     python scripts/evaluate_m7.py --split test --mode end-to-end --run-id 2026-08-31-final
+    python scripts/evaluate_m7.py --split validation --mode end-to-end --run-id validation-e2e \
+        --max-new-tokens 64
+    python scripts/evaluate_m7.py --split validation --mode end-to-end --run-id validation-e2e
+        # (rerun with the same --run-id to resume after an interruption)
 """
 
 from __future__ import annotations
@@ -39,15 +65,14 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from evidencerag.generation.generator import HFGenerator, GENERATION_MODEL
 from evidencerag.chunking.evidence_map import EvidenceChunkMapping
 from evidencerag.chunking.serialize import load_chunks, load_evidence_mappings
 from evidencerag.config import PATHS, SETTINGS
-from evidencerag.evaluation.harness import EvaluationConfig, run_evaluation
-from evidencerag.evaluation.io import save_run
+from evidencerag.evaluation.harness import EvaluationConfig, run_evaluation, summarize_records
+from evidencerag.evaluation.io import append_record, load_completed_keys, load_results, save_metadata, save_summary
 from evidencerag.evaluation.schema import RunMetadata
 from evidencerag.evaluation.systems import build_systems
-from evidencerag.generation.generator import HFGenerator
+from evidencerag.generation.generator import DEFAULT_MAX_NEW_TOKENS, HFGenerator
 from evidencerag.ingestion.serialize import load_papers
 from evidencerag.reranking.reranker import CrossEncoderReranker
 from evidencerag.retrieval.embeddings import QwenEmbedder
@@ -57,7 +82,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--split", required=True, choices=("validation", "test"))
     parser.add_argument("--mode", default="retrieval", choices=("retrieval", "end-to-end"))
-    parser.add_argument("--run-id", default=None, help="Defaults to a UTC timestamp.")
+    parser.add_argument("--run-id", default=None, help="Defaults to a UTC timestamp. Reuse to resume a run.")
     parser.add_argument(
         "--max-questions",
         type=int,
@@ -65,9 +90,15 @@ def parse_args() -> argparse.Namespace:
         help="Pilot/smoke runs only -- do not use for a reported benchmark.",
     )
     parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=DEFAULT_MAX_NEW_TOKENS,
+        help=f"End-to-end generation budget per answer (default: M6's own default, {DEFAULT_MAX_NEW_TOKENS}).",
+    )
+    parser.add_argument(
         "--generator-model",
         default=None,
-        help="Optional generator model override for M7 experiments.",
+        help="Hugging Face causal LM to use in end-to-end mode instead of M6's default generator.",
     )
     parser.add_argument(
         "--output-dir",
@@ -142,40 +173,44 @@ def main() -> int:
     # multi-GB generator on top of it.
     systems = build_systems(chunks, embedder=embedder, reranker=reranker)
 
-    # bfloat16 is requested explicitly rather than relying on
-    # torch_dtype="auto": some transformers versions resolve "auto"
-    # through the now-deprecated torch_dtype path and silently fall
-    # back to float32, roughly doubling generator memory on a GPU that
-    # may already be close to full after the steps above.
-
-    generator = (
-        HFGenerator(
-            model_name=args.generator_model or GENERATION_MODEL,
-            torch_dtype="bfloat16",
-        )
-        if mode == "end_to_end"
-        else None
-    )
+    generator = None
+    if mode == "end_to_end":
+        # bfloat16 is requested explicitly rather than relying on
+        # torch_dtype="auto": some transformers versions resolve
+        # "auto" through the now-deprecated torch_dtype path and
+        # silently fall back to float32, roughly doubling generator
+        # memory on a GPU that may already be close to full after the
+        # steps above. model_name is only overridden when
+        # --generator-model is given, so the standard benchmark still
+        # uses M6's own default (Qwen/Qwen3-4B-Instruct-2507)
+        # unchanged.
+        generator_kwargs = {"torch_dtype": "bfloat16"}
+        if args.generator_model:
+            generator_kwargs["model_name"] = args.generator_model
+        generator = HFGenerator(**generator_kwargs)
 
     config = EvaluationConfig(
         mode=mode,
         split=args.split,
         top_k=SETTINGS.retrieval_top_k,
         candidate_depth=SETTINGS.retrieval_candidate_depth,
+        max_new_tokens=args.max_new_tokens,
         max_questions=args.max_questions,
-    )
-
-    records, summary = run_evaluation(
-        papers=papers,
-        chunks=chunks,
-        evidence_mappings_by_paper=mappings_by_paper,
-        systems=systems,
-        config=config,
-        generator=generator,
     )
 
     run_id = args.run_id or time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     output_dir = (args.output_dir or (PATHS.experiments_dir / "m7")) / run_id
+    results_path = output_dir / "results.jsonl"
+
+    # Resuming: anything already in results.jsonl from a previous,
+    # interrupted invocation of this same --run-id is skipped rather
+    # than recomputed.
+    skip_keys = load_completed_keys(results_path)
+    if skip_keys:
+        print(
+            f"Resuming run {run_id!r}: {len(skip_keys)} question x system record(s) "
+            f"already present in {results_path}, skipping them."
+        )
 
     metadata = RunMetadata(
         run_id=run_id,
@@ -195,9 +230,31 @@ def main() -> int:
         random_seed=SETTINGS.random_seed,
         max_questions=args.max_questions,
     )
+    # Written up front, before the (possibly many-hour) loop below, so
+    # a run's effective configuration is on disk even if it's
+    # interrupted before finishing.
+    save_metadata(output_dir, metadata)
 
-    n_written = save_run(output_dir, metadata, records, summary)
-    print(f"\nWrote {n_written} records to {output_dir}")
+    new_records, _ = run_evaluation(
+        papers=papers,
+        chunks=chunks,
+        evidence_mappings_by_paper=mappings_by_paper,
+        systems=systems,
+        config=config,
+        generator=generator,
+        on_record=lambda record: append_record(output_dir, record),
+        skip_keys=skip_keys,
+    )
+
+    # Recomputed from the full on-disk results.jsonl (previously
+    # completed + newly computed this run), not just what this
+    # process computed -- so a resumed run's summary.json reflects
+    # the whole run, not only its final resumed segment.
+    all_records = list(load_results(results_path))
+    summary = summarize_records(all_records, mode)
+    save_summary(output_dir, summary)
+
+    print(f"\nWrote {len(new_records)} new record(s) this run ({len(all_records)} total) to {output_dir}")
 
     if args.max_questions is not None:
         print("(--max-questions was set -- this is a pilot/smoke run, not a reportable benchmark.)")
