@@ -15,7 +15,7 @@ dependencies unless the real generator is actually constructed.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, Sequence
 
 # Fixed per M6 spec (matches the README's "Planned models" entry,
 # `Qwen3-4B`, resolved to the specific Hugging Face model id) -- must
@@ -94,3 +94,47 @@ class HFGenerator:
         full_ids = generated_ids[0].tolist()
         output_ids = full_ids[len(model_inputs.input_ids[0]) :]
         return self._tokenizer.decode(output_ids, skip_special_tokens=True).strip()
+
+    def generate_batch(
+        self, prompts: Sequence[str], max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS
+    ) -> list[str]:
+        """Batched counterpart to `generate()` -- an M7-only addition, not
+        part of the `Generator` Protocol M6 depends on, so nothing in M6
+        needs to know this exists.
+
+        Decoder-only causal LMs require LEFT-padding for correct batched
+        generation (each sequence's real content must be right-aligned so
+        new tokens are appended in the right place for every row at once);
+        `generate()` never pads at all since it only ever handles one
+        sequence, so this is genuinely additive, not a variant of it.
+
+        Prompts of very different lengths waste computation on padding --
+        callers should sort `prompts` by length before batching (see
+        `scripts/generate_answers_m7.py`) to keep each batch's rows close
+        in length.
+        """
+        if not prompts:
+            return []
+
+        if self._tokenizer.pad_token is None:
+            self._tokenizer.pad_token = self._tokenizer.eos_token
+        original_padding_side = self._tokenizer.padding_side
+        self._tokenizer.padding_side = "left"
+        try:
+            texts = [
+                self._tokenizer.apply_chat_template(
+                    [{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True
+                )
+                for prompt in prompts
+            ]
+            model_inputs = self._tokenizer(texts, return_tensors="pt", padding=True).to(self._model.device)
+            generated_ids = self._model.generate(**model_inputs, max_new_tokens=max_new_tokens)
+
+            prompt_len = model_inputs.input_ids.shape[1]
+            answers = []
+            for row in generated_ids:
+                output_ids = row[prompt_len:].tolist()
+                answers.append(self._tokenizer.decode(output_ids, skip_special_tokens=True).strip())
+            return answers
+        finally:
+            self._tokenizer.padding_side = original_padding_side
