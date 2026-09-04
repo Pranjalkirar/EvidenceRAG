@@ -1,0 +1,23 @@
+{
+  "run_id": "validation-e2e-full",
+  "split": "validation",
+  "mode": "end_to_end_generation_reuse",
+  "source_run_id": "validation-full",
+  "systems": [
+    "bm25",
+    "dense",
+    "hybrid",
+    "hybrid_rerank"
+  ],
+  "retrieval_top_k": 5,
+  "retrieval_candidate_depth": 20,
+  "rrf_k": 60,
+  "bm25_k1": 1.5,
+  "bm25_b": 0.75,
+  "embedding_model": "Qwen/Qwen3-Embedding-0.6B",
+  "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+  "generator_model": "Qwen/Qwen3-4B-Instruct-2507",
+  "random_seed": 42,
+  "max_questions": null,
+  "record_count": 4020
+}

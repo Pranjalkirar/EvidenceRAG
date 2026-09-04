@@ -1,0 +1,68 @@
+{
+  "systems": [
+    {
+      "system": "bm25",
+      "n_questions": 1005,
+      "n_excluded_no_gold_chunks": 117,
+      "recall_at_5": 0.17322261170945383,
+      "recall_at_20": 0.2988634311002732,
+      "mrr_at_5": 0.1253003003003003,
+      "evidence_f1": 0.22682083071948927,
+      "answer_f1": 0.10630048717037059,
+      "answer_f1_by_type": {
+        "abstractive": 0.14499487090674004,
+        "extractive": 0.12168773942655364,
+        "boolean": 0.01669948821888119,
+        "none": 0.0
+      }
+    },
+    {
+      "system": "dense",
+      "n_questions": 1005,
+      "n_excluded_no_gold_chunks": 117,
+      "recall_at_5": 0.17558479532163743,
+      "recall_at_20": 0.32046388493756917,
+      "mrr_at_5": 0.14652777777777778,
+      "evidence_f1": 0.2350335653908176,
+      "answer_f1": 0.10857676899958546,
+      "answer_f1_by_type": {
+        "abstractive": 0.1483993761044405,
+        "extractive": 0.12436323567139937,
+        "boolean": 0.019873344878375415,
+        "none": 0.0
+      }
+    },
+    {
+      "system": "hybrid",
+      "n_questions": 1005,
+      "n_excluded_no_gold_chunks": 117,
+      "recall_at_5": 0.19515525864210076,
+      "recall_at_20": 0.3539303871540714,
+      "mrr_at_5": 0.15553678678678678,
+      "evidence_f1": 0.22574235988661706,
+      "answer_f1": 0.11200239628440811,
+      "answer_f1_by_type": {
+        "abstractive": 0.15573697955466206,
+        "extractive": 0.12660183194496874,
+        "boolean": 0.02027780386383344,
+        "none": 0.0
+      }
+    },
+    {
+      "system": "hybrid_rerank",
+      "n_questions": 1005,
+      "n_excluded_no_gold_chunks": 117,
+      "recall_at_5": 0.22777537876222087,
+      "recall_at_20": 0.3539303871540714,
+      "mrr_at_5": 0.1843093093093093,
+      "evidence_f1": 0.2418067147206683,
+      "answer_f1": 0.1180707031123009,
+      "answer_f1_by_type": {
+        "abstractive": 0.1566119967347349,
+        "extractive": 0.13590315376193457,
+        "boolean": 0.02171799691184622,
+        "none": 0.0
+      }
+    }
+  ]
+}

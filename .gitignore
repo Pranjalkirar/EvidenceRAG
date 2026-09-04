@@ -38,4 +38,7 @@ experiments/m7/
 .vscode/
 src/evidencerag.egg-info/
 
-src/evidencerag.egg-info/
+# M7 reference benchmark artifacts
+!reference_results/
+!reference_results/m7_validation/
+!reference_results/m7_validation/*
